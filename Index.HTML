@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Painel Pós-Venda</title>
+  <meta name="theme-color" content="#14213d">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2314213d'/%3E%3Cpath d='M6 22V10h12l6 6v6z' fill='%23f2b705'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <header class="topbar">
+    <button class="brand" id="btn-home" type="button" aria-label="Ir para o início">
+      Pós-Venda<small>Comercial</small>
+    </button>
+
+    <span class="updated" id="updated" aria-live="polite"></span>
+
+    <form class="search" id="search-form" role="search" autocomplete="off">
+      <input id="search-input" type="search" inputmode="numeric" placeholder="Número da nota" aria-label="Buscar por número da nota">
+      <button class="icon-btn" id="search-btn" type="submit" aria-label="Buscar nota">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      </button>
+    </form>
+
+    <button class="icon-btn" id="btn-refresh" type="button" aria-label="Atualizar dados" title="Atualizar dados">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+    </button>
+
+    <button class="icon-btn" id="btn-theme" type="button" aria-label="Alternar tema claro e escuro" title="Alternar tema">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/></svg>
+    </button>
+  </header>
+
+  <main class="wrap" id="app" tabindex="-1">
+    <div class="loading">Carregando painel…</div>
+  </main>
+
+  <div id="toast-area" aria-live="polite"></div>
+
+  <noscript>
+    <div class="wrap"><div class="empty">Este painel precisa do JavaScript ativado para funcionar.</div></div>
+  </noscript>
+
+  <!-- A ordem importa: cada arquivo usa o que os anteriores criam. -->
+  <script src="js/config.js"></script>
+  <script src="js/util.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/views.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
