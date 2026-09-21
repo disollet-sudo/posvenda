@@ -246,6 +246,11 @@ button.card { display: block; }
 @media (max-width: 900px) {
   .grid-top, .cols { grid-template-columns: 1fr; }
   .wrap { padding: 14px; }
+
+/* Barras clicáveis dos gráficos */
+.chart .bar-g { cursor: pointer; outline: none; }
+.chart .bar-g:hover .bar, .chart .bar-g:focus-visible .bar { opacity: 0.75; }
+.chart .bar-g:focus-visible .hit { stroke: var(--focus); stroke-width: 2; }
   .updated { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
