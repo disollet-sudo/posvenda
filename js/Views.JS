@@ -455,7 +455,8 @@
     } else {
       (ROTAS[nome] || home)(root, model, args);
     }
-    window.scrollTo(0, 0);
-    root.focus({ preventScroll: true });
+    /* cosméticos: uma falha aqui (navegador antigo, ambiente de teste) não deve apagar a tela já montada */
+    try { window.scrollTo(0, 0); } catch (e) { /* ignorado */ }
+    try { root.focus({ preventScroll: true }); } catch (e) { /* ignorado */ }
   };
 })();
