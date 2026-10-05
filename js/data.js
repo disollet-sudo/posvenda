@@ -31,7 +31,12 @@
     diasEmbarque: ['diasembarque', 'prazoembarque', 'diasparaembarque', 'diasproducao'],
     diasEntrega: ['diasentrega', 'prazoentrega', 'diasparaentrega', 'tempoentrega'],
     refat: ['refaturamento', 'refaturada', 'refaturadapela'],
+    /* coluna W da planilha: tipo de operação do CIGAM (ex.: 6949I / 5949L = expositor) */
+    operacao: ['tipodeoperacao', 'tipooperacao', 'operacao'],
   };
+
+  /* operações de expositor: não entram nas listas de embarque */
+  D.OPERACOES_EXPOSITOR = ['6949i', '5949l'];
 
   const key = (s) => U.norm(s).replace(/[^a-z0-9]/g, '');
 
@@ -111,11 +116,12 @@
       diasEmbarqueP: U.parseNumber(g('diasEmbarque')),
       diasEntregaP: U.parseNumber(g('diasEntrega')),
       refat: txt('refat'),
+      operacao: txt('operacao'),
       raw,
     };
   }
 
-  const NF_FIELDS = ['cliente', 'vendedor', 'transportadora', 'situacao', 'dataPedido', 'dataEmbarque', 'previsao', 'dataEntrega', 'diasEmbarqueP', 'diasEntregaP', 'refat'];
+  const NF_FIELDS = ['cliente', 'vendedor', 'transportadora', 'situacao', 'dataPedido', 'dataEmbarque', 'previsao', 'dataEntrega', 'diasEmbarqueP', 'diasEntregaP', 'refat', 'operacao'];
   const empty = (v) => v == null || v === '';
 
   function groupByNF(records) {
@@ -140,8 +146,10 @@
   function enrich(n, hoje) {
     n.entregue = !!n.dataEntrega;
     n.embarcou = !!n.dataEmbarque;
-    /* texto "Refaturada pela NF 139066" vindo da coluna V; vazio = nota normal */
+    /* texto "Refaturada pela NF 139066" vindo da coluna Refaturamento; vazio = nota normal */
     n.refaturada = !empty(n.refat);
+    /* expositor (6949I / 5949L): não entra nas listas de embarque */
+    n.expositor = D.OPERACOES_EXPOSITOR.includes(String(n.operacao || '').trim().toLowerCase());
     n.diasEmbarque = n.diasEmbarqueP != null ? n.diasEmbarqueP : n.dataPedido && n.dataEmbarque ? U.diffDays(n.dataPedido, n.dataEmbarque) : null;
     n.diasEntrega = n.diasEntregaP != null ? n.diasEntregaP : n.dataEmbarque && n.dataEntrega ? U.diffDays(n.dataEmbarque, n.dataEntrega) : null;
     n.atrasado = !n.entregue && n.embarcou && ((!!n.previsao && n.previsao < hoje) || /atras/.test(U.norm(n.situacao)));
@@ -203,10 +211,11 @@
       listas: {
         entregues: entreguesAno.slice().sort((a, b) => b.dataEntrega - a.dataEntrega),
         atrasados: nfs.filter((n) => n.atrasado).sort((a, b) => (a.previsao || 0) - (b.previsao || 0)),
-        /* notas refaturadas (devolvidas e emitidas de novo) saem da fila de embarque */
-        naoEmbarcou: nfs.filter((n) => !n.embarcou && !n.entregue && !n.refaturada).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
+        /* saem da fila de embarque: notas refaturadas (devolvidas e emitidas de novo) e expositores (6949I / 5949L) */
+        naoEmbarcou: nfs.filter((n) => !n.embarcou && !n.entregue && !n.refaturada && !n.expositor).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
         /* só para consulta: as que foram escondidas da fila acima */
         refaturadas: nfs.filter((n) => n.refaturada && !n.embarcou && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
+        expositores: nfs.filter((n) => n.expositor && !n.embarcou && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
       },
     };
   };
@@ -232,7 +241,7 @@
     const clientes = ['Metalúrgica Serra Azul', 'Agro Vale do Sol', 'Transportes Rota Sul', 'Cerâmica Bom Jardim', 'Frigorífico Planalto', 'Madeireira Três Pinheiros', 'Cooperativa Campo Verde', 'Indústria Alfa Norte', 'Distribuidora Ponte Nova', 'Usina Santa Clara', 'Construtora Horizonte', 'Laticínios Monte Claro'];
     const vendedores = ['Carlos', 'Marina', 'Rafael', 'Juliana'];
     const transp = ['Rodonaves', 'Braspress', 'Jamef', 'Atlas'];
-    const headers = ['Nº NF', 'Cliente', 'Vendedor', 'Transportadora', 'Data Pedido', 'Data Embarque', 'Previsão Entrega', 'Data Entrega', 'Parcela', 'Vencimento', 'Valor', 'Data Pagamento', 'Refaturamento'];
+    const headers = ['Nº NF', 'Cliente', 'Vendedor', 'Transportadora', 'Data Pedido', 'Data Embarque', 'Previsão Entrega', 'Data Entrega', 'Parcela', 'Vencimento', 'Valor', 'Data Pagamento', 'Refaturamento', 'Tipo de Operação'];
     const rows = [];
     let linha = 2;
     for (let i = 0; i < 52; i++) {
@@ -244,6 +253,7 @@
       const entrega = emb && previsao && rnd() < 0.72 ? add(emb, ri(4, 18)) : null;
       const ent = entrega && entrega <= hoje ? entrega : null;
       const refat = !emb && rnd() < 0.2 ? `Refaturada pela NF ${nf + 1000}` : '';
+      const operacao = !emb && !refat && rnd() < 0.2 ? '6949I' : '';
       const np = ri(1, 3);
       const total = ri(8, 90) * 1000 + ri(0, 99) * 10;
       for (let k = 1; k <= np; k++) {
@@ -253,7 +263,7 @@
           _row: linha++, 'Nº NF': nf, Cliente: clientes[i % clientes.length], Vendedor: vendedores[i % 4], Transportadora: transp[i % 4],
           'Data Pedido': U.iso(pedido), 'Data Embarque': emb ? U.iso(emb) : '', 'Previsão Entrega': previsao ? U.iso(previsao) : '',
           'Data Entrega': ent ? U.iso(ent) : '', Parcela: `${k}/${np}`, Vencimento: U.iso(venc), Valor: Math.round((total / np) * 100) / 100,
-          'Data Pagamento': pago ? U.iso(add(venc, ri(-2, 6))) : '', Refaturamento: refat,
+          'Data Pagamento': pago ? U.iso(add(venc, ri(-2, 6))) : '', Refaturamento: refat, 'Tipo de Operação': operacao,
         });
       }
     }
