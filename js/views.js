@@ -377,14 +377,6 @@
     return Array.from(s).sort((a, b) => b - a);
   }
 
-  function chartCard(c) {
-    return (
-      `<div class="card"><a class="card-link" href="${c.href}"><div class="card-head"><h2>${esc(c.title)}</h2><span class="hint">Ver detalhes</span></div>` +
-      `<div class="kpi ${c.cls}">${esc(c.kpi)}</div><div class="kpi-sub">${esc(c.sub)}</div></a>` +
-      `<div class="chart" data-go="${c.href}">${c.chart}</div></div>`
-    );
-  }
-
   function colunaLista(cls, title, href, list, subFn) {
     const MAX = 30;
     const item = (n) =>
@@ -400,28 +392,48 @@
     );
   }
 
+  /* Lê um valor digitado em reais: aceita "1500000", "1.500.000", "1.500.000,50", "R$ 1.500.000,50" */
+  function lerReais(texto) {
+    let s = String(texto || '').replace(/[^\d.,]/g, '');
+    if (!s) return 0;
+    if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+    else if ((s.match(/\./g) || []).length > 1) s = s.replace(/\./g, '');
+    else if (/^\d{1,3}\.\d{3}$/.test(s)) s = s.replace('.', '');
+    const v = parseFloat(s);
+    return isFinite(v) && v > 0 ? v : 0;
+  }
+
   function home(root, m) {
-    const serie = (arr, campo) => arr.map((x) => ({ label: U.MES_CURTO[x.mes], value: x[campo], key: String(x.mes) }));
-    const notasVenc = U.uniq(m.vencidos.map((p) => p.nf)).length;
     const short = U.fmtDateShort;
 
-    const cards = [
-      chartCard({
-        href: '#/vencidos', title: 'Vencidos a receber', cls: 'late', kpi: U.fmtBRL(m.totalVencido),
-        sub: m.vencidos.length ? `${U.plural(m.vencidos.length, 'parcela', 'parcelas')} em ${U.plural(notasVenc, 'nota', 'notas')}, vencidas em ${m.ano}` : `Nenhuma parcela vencida em ${m.ano}`,
-        chart: C.bars({ items: serie(m.vencidoPorMes, 'soma'), fmt: (n) => U.fmtBRLCompact(n).replace('R$ ', ''), cls: 'late', title: 'Valor vencido por mês' }),
-      }),
-      chartCard({
-        href: '#/entrega', title: 'Média de entrega', cls: 'info', kpi: U.fmtDias(m.mediaEntrega),
-        sub: m.entreguesAno.length ? `${U.plural(m.entreguesAno.length, 'nota entregue', 'notas entregues')} em ${m.ano}` : `Sem entregas registradas em ${m.ano}`,
-        chart: C.bars({ items: serie(m.entregaPorMes, 'media'), fmt: (n) => U.fmtNum(n, 1), ref: m.mediaEntrega, title: 'Média de entrega por mês' }),
-      }),
-      chartCard({
-        href: '#/embarque', title: 'Média de embarque', cls: 'warn', kpi: U.fmtDias(m.mediaEmbarque),
-        sub: m.embarcadasAno.length ? `${U.plural(m.embarcadasAno.length, 'nota embarcada', 'notas embarcadas')} em ${m.ano}` : `Sem embarques registrados em ${m.ano}`,
-        chart: C.bars({ items: serie(m.embarquePorMes, 'media'), fmt: (n) => U.fmtNum(n, 1), cls: 'warn', ref: m.mediaEmbarque, title: 'Média de embarque por mês' }),
-      }),
-    ];
+    /* ---------- Faixa de indicadores ---------- */
+    const mesRef = m.hoje.getMonth();
+    const anoRef = m.hoje.getFullYear();
+    const nomeMes = U.MES_LONGO[mesRef];
+
+    /* soma dos pedidos que entraram no mês atual; 1 valor por nota (a planilha tem 1 linha por parcela) */
+    const pedidosMes = m.nfs.reduce((s, n) => {
+      const d = n.dataPedido;
+      if (!d || d.getFullYear() !== anoRef || d.getMonth() !== mesRef) return s;
+      const r = n.rows.find((x) => x.valor) || n.rows[0];
+      return s + (r ? r.valor : 0);
+    }, 0);
+
+    const metaKey = `pv_meta_${anoRef}-${String(mesRef + 1).padStart(2, '0')}`;
+    const lerMeta = () => { try { return parseFloat(localStorage.getItem(metaKey)) || 0; } catch (e) { return 0; } };
+    const gravarMeta = (v) => { try { localStorage.setItem(metaKey, String(v)); } catch (e) { /* ignorado */ } };
+    const meta0 = lerMeta();
+
+    const strip =
+      `<div class="kpi-strip">` +
+      `<a class="kpi-mini" href="#/vencidos"><span class="label">A receber (vencido)</span><span class="value late">${esc(U.fmtBRL(m.totalVencido))}</span></a>` +
+      `<a class="kpi-mini" href="#/entrega"><span class="label">Média de entrega</span><span class="value info">${esc(U.fmtDias(m.mediaEntrega))}</span></a>` +
+      `<a class="kpi-mini" href="#/embarque"><span class="label">Média de embarque</span><span class="value warn">${esc(U.fmtDias(m.mediaEmbarque))}</span></a>` +
+      `<div class="kpi-mini"><span class="label">Pedidos de ${esc(nomeMes)}</span><span class="value">${esc(U.fmtBRL(pedidosMes))}</span></div>` +
+      `<label class="kpi-mini meta" for="meta-in"><span class="label">Meta de ${esc(nomeMes)} (clique e digite)</span>` +
+      `<input id="meta-in" type="text" inputmode="decimal" autocomplete="off" placeholder="R$ 0,00" value="${meta0 ? esc(U.fmtBRL(meta0)) : ''}"></label>` +
+      `<div class="kpi-mini"><span class="label">Falta para a meta</span><span class="value" id="meta-falta">—</span><span class="kpi-sub" id="meta-pct"></span></div>` +
+      `</div>`;
 
     const L = m.listas;
     const colunas = [
@@ -433,14 +445,34 @@
     root.innerHTML =
       `<div class="view-head"><h1>Panorama de ${m.ano}</h1><span class="toolbar" style="margin:0"><label for="sel-ano" class="kpi-sub" style="margin-right:6px">Ano</label>` +
       `<select id="sel-ano">${anosDisponiveis(m).map((a) => `<option${a === m.ano ? ' selected' : ''}>${a}</option>`).join('')}</select></span></div>` +
-      `<div class="grid-top">${cards.join('')}</div><div class="cols">${colunas.join('')}</div>`;
+      strip + `<div class="cols">${colunas.join('')}</div>`;
 
     root.querySelector('#sel-ano').addEventListener('change', (e) => {
       document.dispatchEvent(new CustomEvent('pv:ano', { detail: +e.target.value }));
     });
-    root.querySelectorAll('.chart[data-go]').forEach((el) => {
-      C.bind(el, (key) => go(`${el.dataset.go}/${key}`));
+
+    /* meta do mês: digitar, ver quanto falta e a porcentagem */
+    const inpMeta = root.querySelector('#meta-in');
+    const atualizaMeta = () => {
+      const meta = lerMeta();
+      const falta = root.querySelector('#meta-falta');
+      const pct = root.querySelector('#meta-pct');
+      if (!meta) { falta.textContent = '—'; falta.className = 'value'; pct.textContent = 'Defina a meta do mês'; return; }
+      const p = (pedidosMes / meta) * 100;
+      const bateu = pedidosMes >= meta;
+      falta.textContent = bateu ? 'Meta batida' : U.fmtBRL(meta - pedidosMes);
+      falta.className = 'value' + (bateu ? ' ok' : '');
+      pct.textContent = `${U.fmtNum(p, 1)}% da meta` + (bateu ? ` (+${U.fmtBRL(pedidosMes - meta)})` : '');
+    };
+    inpMeta.addEventListener('change', () => {
+      const v = lerReais(inpMeta.value);
+      gravarMeta(v);
+      inpMeta.value = v ? U.fmtBRL(v) : '';
+      atualizaMeta();
     });
+    inpMeta.addEventListener('keydown', (e) => { if (e.key === 'Enter') inpMeta.blur(); });
+    inpMeta.addEventListener('focus', () => inpMeta.select());
+    atualizaMeta();
   }
 
   /* ---------- Entrada: o app.js chama isto a cada mudança de rota ---------- */
