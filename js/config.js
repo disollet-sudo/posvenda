@@ -5,6 +5,6 @@
  */
 window.PV = window.PV || {};
 window.PV.config = {
-  API_URL: 'https://script.google.com/macros/s/AKfycbylkztc_TOvUEm_e70uD4B5nPo8SUuSGPep9QRRi081dmdCQiN_oxjRO1eJ0GZuOYsn/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbzYsYf7OZq0TNctfYp-PR2Bj9kKSC4L1aamXqv1AajoXfllNmOUSbIZLt2I0pCmnEl9/exec',
   REFRESH_MINUTES: 5, // atualiza sozinho enquanto a aba estiver aberta
 };
