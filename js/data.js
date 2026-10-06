@@ -31,6 +31,8 @@
     diasEmbarque: ['diasembarque', 'prazoembarque', 'diasparaembarque', 'diasproducao'],
     diasEntrega: ['diasentrega', 'prazoentrega', 'diasparaentrega', 'tempoentrega'],
     refat: ['refaturamento', 'refaturada', 'refaturadapela'],
+    /* coluna G da planilha: UF (EX = exportação) */
+    uf: ['uf'],
     /* coluna W da planilha: tipo de operação do CIGAM (ex.: 6949I / 5949L = expositor) */
     operacao: ['tipodeoperacao', 'tipooperacao', 'operacao'],
   };
@@ -117,11 +119,12 @@
       diasEntregaP: U.parseNumber(g('diasEntrega')),
       refat: txt('refat'),
       operacao: txt('operacao'),
+      uf: txt('uf'),
       raw,
     };
   }
 
-  const NF_FIELDS = ['cliente', 'vendedor', 'transportadora', 'situacao', 'dataPedido', 'dataEmbarque', 'previsao', 'dataEntrega', 'diasEmbarqueP', 'diasEntregaP', 'refat', 'operacao'];
+  const NF_FIELDS = ['cliente', 'vendedor', 'transportadora', 'situacao', 'dataPedido', 'dataEmbarque', 'previsao', 'dataEntrega', 'diasEmbarqueP', 'diasEntregaP', 'refat', 'operacao', 'uf'];
   const empty = (v) => v == null || v === '';
 
   function groupByNF(records) {
@@ -150,6 +153,8 @@
     n.refaturada = !empty(n.refat);
     /* expositor (6949I / 5949L): não entra nas listas de embarque */
     n.expositor = D.OPERACOES_EXPOSITOR.includes(String(n.operacao || '').trim().toLowerCase());
+    /* exportação (UF = EX, coluna G): não entra nas listas de embarque */
+    n.exportacao = String(n.uf || '').trim().toUpperCase() === 'EX';
     /* Valor Pedido (coluna F): pedido com valor 0 não entra na fila de embarque */
     n.valorPedido = Math.max(0, ...n.rows.map((r) => r.valor || 0));
     n.valorZero = n.valorPedido <= 0;
@@ -214,8 +219,10 @@
       listas: {
         entregues: entreguesAno.slice().sort((a, b) => b.dataEntrega - a.dataEntrega),
         atrasados: nfs.filter((n) => n.atrasado).sort((a, b) => (a.previsao || 0) - (b.previsao || 0)),
-        /* saem da fila de embarque: notas refaturadas (devolvidas e emitidas de novo), expositores (6949I / 5949L) e pedidos com valor 0 */
-        naoEmbarcou: nfs.filter((n) => !n.embarcou && !n.entregue && !n.refaturada && !n.expositor && !n.valorZero).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
+        /* saem da fila de embarque: notas refaturadas (devolvidas e emitidas de novo), expositores (6949I / 5949L), pedidos com valor 0 e exportações (UF = EX) */
+        naoEmbarcou: nfs.filter((n) => !n.embarcou && !n.entregue && !n.refaturada && !n.expositor && !n.valorZero && !n.exportacao).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
+        /* só para consulta: exportações (UF = EX) escondidas da fila de embarque */
+        exportacoes: nfs.filter((n) => n.exportacao && !n.embarcou && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
         /* só para consulta: pedidos com Valor Pedido 0 escondidos da fila de embarque */
         valorZero: nfs.filter((n) => n.valorZero && !n.embarcou && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
         /* só para consulta: as que foram escondidas da fila acima */
