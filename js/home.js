@@ -35,6 +35,21 @@
 .hm-bars b{display:block;background:var(--info);opacity:.55;border-radius:5px 5px 0 0;min-height:2px}
 .hm-bars .cur b{background:var(--accent);opacity:1}
 .hm-dl{display:grid;gap:12px;margin:10px 0 0}.hm-dl dt{font-size:12px;color:var(--ink-2)}.hm-dl dd{margin:0;font:600 17px var(--font-num)}
+#tbl-atraso tbody tr{cursor:pointer}
+.ed-ov{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px}
+.ed-box{background:var(--surface);color:var(--ink,inherit);border:1px solid var(--line);border-radius:12px;padding:22px;width:100%;max-width:480px;max-height:92vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.35)}
+.ed-box h2{margin:0 0 2px;font-size:18px}
+.ed-sub{font-size:13px;color:var(--ink-2);margin-bottom:14px}
+.ed-box label{display:block;font-size:12px;color:var(--ink-2);margin:12px 0 4px}
+.ed-box textarea,.ed-box input[type=date]{width:100%;box-sizing:border-box;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:transparent;color:inherit}
+.ed-box textarea{min-height:96px;resize:vertical}
+.ed-hint{font-size:12px;color:var(--ink-2);margin-top:4px}
+.ed-err{color:var(--late);font-size:13px;margin-top:10px;min-height:1em}
+.ed-act{display:flex;gap:8px;justify-content:flex-end;align-items:center;margin-top:16px;flex-wrap:wrap}
+.ed-act a{margin-right:auto;font-size:13px;color:var(--ink-2)}
+.ed-act button{font:inherit;padding:9px 16px;border-radius:8px;border:1px solid var(--line);background:transparent;color:inherit;cursor:pointer}
+.ed-act button.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.ed-act button:disabled{opacity:.6;cursor:default}
 @media(max-width:900px){.hm-hero,.hm-two,.hm-act{grid-template-columns:1fr}.hm-kpis{grid-template-columns:1fr 1fr}.hm-hero .big{font-size:32px}}
 @media(max-width:520px){.hm-kpis{grid-template-columns:1fr}}`;
   document.head.appendChild(st);
@@ -75,6 +90,99 @@
     else if ((s.match(/\./g) || []).length > 1 || /^\d{1,3}\.\d{3}$/.test(s)) s = s.replace(/\./g, '');
     const v = parseFloat(s);
     return isFinite(v) && v > 0 ? v : 0;
+  }
+
+  /* ---------- Edição de embarque: observação + data de embarque manual ---------- */
+  async function salvarEmbarque(nf, obs, data) {
+    if (!API) return { ok: false, error: 'Endereço do Apps Script não configurado.' };
+    try {
+      const resp = await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ acao: 'embarque_set', nf: nf, observacao: obs, data_embarque: data || '' }),
+      });
+      const j = await resp.json();
+      if (j && j.ok) return j;
+      return { ok: false, error: (j && (j.error || j.erro)) || 'Não foi possível salvar.' };
+    } catch (e) {
+      return { ok: false, error: 'Sem conexão com o Apps Script. Confira se a nova versão foi implantada.' };
+    }
+  }
+
+  function abrirEdicao(o) {
+    const ov = document.createElement('div');
+    ov.className = 'ed-ov';
+    ov.innerHTML =
+      `<div class="ed-box" role="dialog" aria-modal="true" aria-label="Embarque da nota ${esc(o.nf)}">` +
+      `<h2>Nota ${esc(o.nf)}</h2><div class="ed-sub">${esc(o.cliente || '')}${o.dias != null ? ' · ' + o.dias + ' dias desde o pedido' : ''}</div>` +
+      `<label for="ed-data">Data de embarque (manual)</label><input type="date" id="ed-data">` +
+      `<div class="ed-hint">Deixe em branco para salvar só a observação. Com a data preenchida, o pedido sai da fila.</div>` +
+      `<label for="ed-obs">Observação</label><textarea id="ed-obs" maxlength="1000"></textarea>` +
+      `<div class="ed-err" id="ed-err" role="alert"></div>` +
+      `<div class="ed-act">${o.link ? `<a href="${esc(o.link)}">Abrir a nota completa</a>` : ''}<button type="button" id="ed-cancel">Cancelar</button><button type="button" class="pri" id="ed-save">Salvar</button></div>` +
+      `</div>`;
+    document.body.appendChild(ov);
+    const $ = (s) => ov.querySelector(s);
+    $('#ed-obs').value = o.obs || '';
+    const fechar = () => { document.removeEventListener('keydown', onKey); ov.remove(); };
+    const onKey = (e) => { if (e.key === 'Escape') fechar(); };
+    document.addEventListener('keydown', onKey);
+    ov.addEventListener('mousedown', (e) => { if (e.target === ov) fechar(); });
+    $('#ed-cancel').addEventListener('click', fechar);
+    $('#ed-save').addEventListener('click', async () => {
+      const btn = $('#ed-save'), err = $('#ed-err');
+      err.textContent = '';
+      btn.disabled = true; btn.textContent = 'Salvando…';
+      const r = await salvarEmbarque(o.nf, $('#ed-obs').value.trim(), $('#ed-data').value);
+      if (!r.ok) { err.textContent = r.error; btn.disabled = false; btn.textContent = 'Salvar'; return; }
+      fechar();
+      if (PV.toast) PV.toast('Salvo na planilha. Atualizando o painel…');
+      setTimeout(() => {
+        if (typeof PV.refresh === 'function') PV.refresh(); else location.reload();
+      }, 600);
+    });
+    setTimeout(() => $('#ed-data').focus(), 30);
+  }
+
+  /* acha a nota do modelo pelo número da NF mostrado na linha (só para pegar cliente e observação atual) */
+  function acharNota(lista, nf) {
+    return lista.find((n) => Object.keys(n).some((k) => {
+      const v = n[k];
+      if (typeof v !== 'string' && typeof v !== 'number') return false;
+      const s = String(v);
+      return s.length <= 20 && s.replace(/\D/g, '') === nf;
+    })) || null;
+  }
+
+  function ligarEdicao(box, lista, dias) {
+    box.addEventListener('click', (e) => {
+      if (e.target.closest('thead, input, select, textarea, .toolbar')) return;
+      const tr = e.target.closest('tbody tr');
+      if (!tr) return;
+      const cells = tr.querySelectorAll('td');
+      if (!cells.length) return;
+      let nf = '';
+      for (const td of cells) { const d = (td.textContent || '').replace(/\D/g, ''); if (d.length >= 3) { nf = d; break; } }
+      if (!nf) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const n = acharNota(lista, nf);
+      const a = tr.querySelector('a[href]');
+      let obs = '';
+      if (n && Array.isArray(n.rows)) {
+        for (const r of n.rows) {
+          const v = r['OBSERVAÇÃO'] || r.obs || r.observacao || r.observacoes;
+          if (v) { obs = String(v); break; }
+        }
+      }
+      abrirEdicao({
+        nf: nf,
+        cliente: n ? n.cliente : (cells[1] ? cells[1].textContent.trim() : ''),
+        dias: n ? dias(n) : null,
+        obs: obs,
+        link: a ? a.getAttribute('href') : '',
+      });
+    }, true);
   }
 
   /* ---------- Início ---------- */
@@ -159,13 +267,13 @@
     const d = c.atras.map(c.dias);
     const T = K.T;
     root.innerHTML =
-      K.head('Atrasados para embarque', c.lim == null ? 'Ainda não há média de embarque para comparar.' : `Pedidos sem embarque há mais dias, contados desde a data do pedido, do que a média de embarque (${U.fmtDias(Math.round(c.lim))}).`) +
+      K.head('Atrasados para embarque', c.lim == null ? 'Ainda não há média de embarque para comparar.' : `Pedidos sem embarque há mais dias, contados desde a data do pedido, do que a média de embarque (${U.fmtDias(Math.round(c.lim))}). Clique numa linha para anotar uma observação ou informar a data de embarque.`) +
       K.stats([
         ['Pedidos atrasados', c.atras.length],
         ['Maior tempo parado', U.fmtDias(d.length ? Math.max(...d) : null)],
         ['Tempo médio parado', U.fmtDias(d.length ? Math.round(U.avg(d)) : null)],
         ['Valor das notas', U.fmtBRL(U.sum(c.atras.map((n) => n.valorTotal)))],
-      ]) + '<div id="tbl"></div>';
+      ]) + '<div id="tbl-atraso"><div id="tbl"></div></div>';
     K.mountTable(root.querySelector('#tbl'), {
       file: 'atrasados-embarque', rows: c.atras, sort: 'parado', dir: -1,
       columns: [
@@ -175,6 +283,7 @@
         T.chip('parc', 'Parcela do mês', K.pmChip), T.brl('valor', 'Valor', (n) => n.valorTotal, true),
       ],
     });
+    ligarEdicao(root.querySelector('#tbl-atraso'), c.atras, c.dias);
   }
 
   /* ---------- Rotas ---------- */
