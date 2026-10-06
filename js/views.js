@@ -474,7 +474,7 @@
     inpMeta.addEventListener('focus', () => inpMeta.select());
     atualizaMeta();
   }
-
+  V.kit = { mountTable, T, head, stats, pmChip, nfChip, chipHtml };
   /* ---------- Entrada: o app.js chama isto a cada mudança de rota ---------- */
   const ROTAS = { home, vencidos, entrega, embarque, entregues: lista('entregues'), atrasados: lista('atrasados'), naoembarcou: lista('naoembarcou'), busca };
 
