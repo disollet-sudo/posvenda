@@ -35,10 +35,16 @@
     uf: ['uf'],
     /* coluna W da planilha: tipo de operação do CIGAM (ex.: 6949I / 5949L = expositor) */
     operacao: ['tipodeoperacao', 'tipooperacao', 'operacao'],
+    /* coluna Y da planilha: "SIM" quando a observação do pedido no CIGAM tem "TRIANGULAR" */
+    triangular: ['triangular', 'operacaotriangular'],
   };
 
   /* operações de expositor: não entram nas listas de embarque */
   D.OPERACOES_EXPOSITOR = ['6949i', '5949l'];
+
+  /* operação triangular: a nota de VENDA (ex.: 6109) não embarca; quem viaja é a nota de
+   * TRANSPORTE (6923), que continua na fila de embarque. Acrescente aqui outras operações de transporte. */
+  D.OPERACOES_TRANSPORTE = ['6923'];
 
   const key = (s) => U.norm(s).replace(/[^a-z0-9]/g, '');
 
@@ -119,12 +125,13 @@
       diasEntregaP: U.parseNumber(g('diasEntrega')),
       refat: txt('refat'),
       operacao: txt('operacao'),
+      triangular: txt('triangular'),
       uf: txt('uf'),
       raw,
     };
   }
 
-  const NF_FIELDS = ['cliente', 'vendedor', 'transportadora', 'situacao', 'dataPedido', 'dataEmbarque', 'previsao', 'dataEntrega', 'diasEmbarqueP', 'diasEntregaP', 'refat', 'operacao', 'uf'];
+  const NF_FIELDS = ['cliente', 'vendedor', 'transportadora', 'situacao', 'dataPedido', 'dataEmbarque', 'previsao', 'dataEntrega', 'diasEmbarqueP', 'diasEntregaP', 'refat', 'operacao', 'uf', 'triangular'];
   const empty = (v) => v == null || v === '';
 
   function groupByNF(records) {
@@ -155,6 +162,9 @@
     n.expositor = D.OPERACOES_EXPOSITOR.includes(String(n.operacao || '').trim().toLowerCase());
     /* exportação (UF = EX, coluna G): não entra nas listas de embarque */
     n.exportacao = String(n.uf || '').trim().toUpperCase() === 'EX';
+    /* triangular: marcada pelo Python (observação com "TRIANGULAR"); a nota de transporte não é escondida */
+    const marcaTri = /^(sim|s|1|x|true)$/i.test(String(n.triangular || '').trim());
+    n.triangular = marcaTri && !D.OPERACOES_TRANSPORTE.includes(String(n.operacao || '').trim().toLowerCase());
     /* Valor Pedido (coluna F): pedido com valor 0 não entra na fila de embarque */
     n.valorPedido = Math.max(0, ...n.rows.map((r) => r.valor || 0));
     n.valorZero = n.valorPedido <= 0;
@@ -219,8 +229,10 @@
       listas: {
         entregues: entreguesAno.slice().sort((a, b) => b.dataEntrega - a.dataEntrega),
         atrasados: nfs.filter((n) => n.atrasado).sort((a, b) => (a.previsao || 0) - (b.previsao || 0)),
-        /* saem da fila de embarque: notas refaturadas (devolvidas e emitidas de novo), expositores (6949I / 5949L), pedidos com valor 0 e exportações (UF = EX) */
-        naoEmbarcou: nfs.filter((n) => !n.embarcou && !n.entregue && !n.refaturada && !n.expositor && !n.valorZero && !n.exportacao).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
+        /* saem da fila de embarque: notas refaturadas (devolvidas e emitidas de novo), expositores (6949I / 5949L), pedidos com valor 0, exportações (UF = EX) e vendas triangulares */
+        naoEmbarcou: nfs.filter((n) => !n.embarcou && !n.entregue && !n.refaturada && !n.expositor && !n.valorZero && !n.exportacao && !n.triangular).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
+        /* só para consulta: notas de venda de operação triangular escondidas da fila de embarque */
+        triangulares: nfs.filter((n) => n.triangular && !n.embarcou && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
         /* só para consulta: exportações (UF = EX) escondidas da fila de embarque */
         exportacoes: nfs.filter((n) => n.exportacao && !n.embarcou && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
         /* só para consulta: pedidos com Valor Pedido 0 escondidos da fila de embarque */
