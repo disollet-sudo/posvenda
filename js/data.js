@@ -150,6 +150,9 @@
     n.refaturada = !empty(n.refat);
     /* expositor (6949I / 5949L): não entra nas listas de embarque */
     n.expositor = D.OPERACOES_EXPOSITOR.includes(String(n.operacao || '').trim().toLowerCase());
+    /* Valor Pedido (coluna F): pedido com valor 0 não entra na fila de embarque */
+    n.valorPedido = Math.max(0, ...n.rows.map((r) => r.valor || 0));
+    n.valorZero = n.valorPedido <= 0;
     n.diasEmbarque = n.diasEmbarqueP != null ? n.diasEmbarqueP : n.dataPedido && n.dataEmbarque ? U.diffDays(n.dataPedido, n.dataEmbarque) : null;
     n.diasEntrega = n.diasEntregaP != null ? n.diasEntregaP : n.dataEmbarque && n.dataEntrega ? U.diffDays(n.dataEmbarque, n.dataEntrega) : null;
     n.atrasado = !n.entregue && n.embarcou && ((!!n.previsao && n.previsao < hoje) || /atras/.test(U.norm(n.situacao)));
@@ -211,8 +214,10 @@
       listas: {
         entregues: entreguesAno.slice().sort((a, b) => b.dataEntrega - a.dataEntrega),
         atrasados: nfs.filter((n) => n.atrasado).sort((a, b) => (a.previsao || 0) - (b.previsao || 0)),
-        /* saem da fila de embarque: notas refaturadas (devolvidas e emitidas de novo) e expositores (6949I / 5949L) */
-        naoEmbarcou: nfs.filter((n) => !n.embarcou && !n.entregue && !n.refaturada && !n.expositor).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
+        /* saem da fila de embarque: notas refaturadas (devolvidas e emitidas de novo), expositores (6949I / 5949L) e pedidos com valor 0 */
+        naoEmbarcou: nfs.filter((n) => !n.embarcou && !n.entregue && !n.refaturada && !n.expositor && !n.valorZero).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
+        /* só para consulta: pedidos com Valor Pedido 0 escondidos da fila de embarque */
+        valorZero: nfs.filter((n) => n.valorZero && !n.embarcou && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
         /* só para consulta: as que foram escondidas da fila acima */
         refaturadas: nfs.filter((n) => n.refaturada && !n.embarcou && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
         expositores: nfs.filter((n) => n.expositor && !n.embarcou && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
