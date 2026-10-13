@@ -5,6 +5,7 @@
  */
 window.PV = window.PV || {};
 window.PV.config = {
-  API_URL: 'https://script.google.com/macros/s/AKfycbz73DTxX6O7aE_bqnQzrLy-LYVIZfJEXoT36DvjiZ_eenF_XcXgZEjdJiVuVWDhmTFt/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbxtyFTyJXgE6PHGXuazJizsND_GZVnZBR78MlXTjFBZx7AIMe89no0Th75vvCQ24VVn/exec',
   REFRESH_MINUTES: 5, // atualiza sozinho enquanto a aba estiver aberta
+  DIAS_SEM_PREVISAO: 3, // nota embarcada sem previsão nem entrega há mais de N dias entra em "investigar"
 };
