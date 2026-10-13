@@ -173,6 +173,19 @@
     n.atrasado = !n.entregue && n.embarcou && ((!!n.previsao && n.previsao < hoje) || /atras/.test(U.norm(n.situacao)));
     n.diasAtraso = n.atrasado && n.previsao ? Math.max(0, U.diffDays(n.previsao, hoje)) : 0;
 
+    /* acompanhamento de entrega: nota embarcada, ainda sem data de entrega (coluna O).
+     *  - 'atrasada': previsão de entrega anterior a hoje (previsão igual a hoje ainda não conta);
+     *  - 'investigar': sem previsão e sem entrega, embarcada há mais de DIAS_SEM_PREVISAO dias
+     *    (a SSW pode não ter achado a nota, a chave da NF-e pode estar errada etc.).
+     * Ficam de fora devolvidas/refaturadas, expositores, exportações e vendas triangulares. */
+    const limiteSemPrev = PV.config && PV.config.DIAS_SEM_PREVISAO != null ? PV.config.DIAS_SEM_PREVISAO : 3;
+    n.diasDesdeEmbarque = n.embarcou ? Math.max(0, U.diffDays(n.dataEmbarque, hoje)) : null;
+    n.entregaTipo = null;
+    if (n.embarcou && !n.entregue && !n.refaturada && !n.expositor && !n.exportacao && !n.triangular) {
+      if (n.atrasado) n.entregaTipo = 'atrasada';
+      else if (!n.previsao && n.diasDesdeEmbarque > limiteSemPrev) n.entregaTipo = 'investigar';
+    }
+
     const doMes = n.parcelas.filter((p) => p.vencimento && p.vencimento.getFullYear() === hoje.getFullYear() && p.vencimento.getMonth() === hoje.getMonth());
     n.parcelaMes = !doMes.length ? 'sem' : doMes.some((p) => D.parcelaStatus(p, hoje) === 'vencida') ? 'atraso' : doMes.every((p) => p.pago) ? 'pago' : 'aberto';
     n.valorTotal = U.sum(n.parcelas.map((p) => p.valor));
@@ -229,6 +242,10 @@
       listas: {
         entregues: entreguesAno.slice().sort((a, b) => b.dataEntrega - a.dataEntrega),
         atrasados: nfs.filter((n) => n.atrasado).sort((a, b) => (a.previsao || 0) - (b.previsao || 0)),
+        /* entregas atrasadas (previsão vencida) e sem previsão para investigar; atrasadas primeiro, da previsão mais antiga para a mais nova */
+        entregaAtraso: nfs.filter((n) => n.entregaTipo).sort((a, b) =>
+          (a.entregaTipo === b.entregaTipo ? 0 : a.entregaTipo === 'atrasada' ? -1 : 1) ||
+          ((a.previsao || a.dataEmbarque) - (b.previsao || b.dataEmbarque))),
         /* saem da fila de embarque: notas refaturadas (devolvidas e emitidas de novo), expositores (6949I / 5949L), pedidos com valor 0, exportações (UF = EX) e vendas triangulares */
         naoEmbarcou: nfs.filter((n) => !n.embarcou && !n.entregue && !n.refaturada && !n.expositor && !n.valorZero && !n.exportacao && !n.triangular).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
         /* só para consulta: notas de venda de operação triangular escondidas da fila de embarque */
