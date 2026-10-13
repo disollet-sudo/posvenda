@@ -23,7 +23,7 @@
 .hm-bar{height:12px;background:rgba(255,255,255,.18);border-radius:99px;overflow:hidden;margin:14px 0 6px}
 .hm-bar i{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .6s}
 .hm-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
-.hm-act{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.hm-act{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 .hm-act a{display:block;padding:20px 22px;background:var(--surface);border:1px solid var(--line);border-left:6px solid var(--info);border-radius:10px;color:inherit;text-decoration:none}
 .hm-act a.late{border-left-color:var(--late)}
 .hm-act a:hover{border-color:var(--ink-2)}
@@ -35,7 +35,7 @@
 .hm-bars b{display:block;background:var(--info);opacity:.55;border-radius:5px 5px 0 0;min-height:2px}
 .hm-bars .cur b{background:var(--accent);opacity:1}
 .hm-dl{display:grid;gap:12px;margin:10px 0 0}.hm-dl dt{font-size:12px;color:var(--ink-2)}.hm-dl dd{margin:0;font:600 17px var(--font-num)}
-#tbl-atraso tbody tr{cursor:pointer}
+#tbl-atraso tbody tr,#tbl-entrega tbody tr{cursor:pointer}
 .ed-ov{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px}
 .ed-box{background:var(--surface);color:var(--ink,inherit);border:1px solid var(--line);border-radius:12px;padding:22px;width:100%;max-width:480px;max-height:92vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.35)}
 .ed-box h2{margin:0 0 2px;font-size:18px}
@@ -65,7 +65,10 @@
     const fila = m.listas.naoEmbarcou.slice().sort((a, b) => (dias(b) || 0) - (dias(a) || 0));
     /* atrasado para embarque: dias desde a data do PEDIDO passou da média de embarque */
     const atras = lim == null ? [] : fila.filter((n) => dias(n) != null && dias(n) > lim);
-    return { h, mes, ano, doMes, vendMes, lim, dias, fila, atras, parado: U.sum(fila.map((n) => n.valorTotal)) };
+    /* entregas: previsão vencida x sem previsão (investigar); ver data.js */
+    const entAtras = m.listas.entregaAtraso.filter((n) => n.entregaTipo === 'atrasada');
+    const entInvest = m.listas.entregaAtraso.filter((n) => n.entregaTipo === 'investigar');
+    return { h, mes, ano, doMes, vendMes, lim, dias, fila, atras, entAtras, entInvest, parado: U.sum(fila.map((n) => n.valorTotal)) };
   }
 
   /* ---------- Meta compartilhada (fica no Apps Script; localStorage só como reserva) ---------- */
@@ -217,6 +220,7 @@
       `<section class="hm-act">` +
       `<a href="#/naoembarcou"><span class="go">Ver lista</span><div class="label kpi-sub">Pedidos para embarcar</div><div class="big info">${c.fila.length}</div><div class="kpi-sub">${esc(U.fmtBRL(c.parado))} aguardando embarque</div></a>` +
       `<a class="late" href="#/embarqueatraso"><span class="go">Ver lista</span><div class="label kpi-sub">Atrasados para embarque</div><div class="big late" style="color:var(--late)">${c.atras.length}</div><div class="kpi-sub">${c.lim == null ? 'Sem média de embarque ainda' : 'Mais de ' + Math.round(c.lim) + ' dias desde o pedido'}</div></a>` +
+      `<a class="late" href="#/entregaatraso"><span class="go">Ver lista</span><div class="label kpi-sub">Entregas atrasadas</div><div class="big late" style="color:var(--late)">${c.entAtras.length + c.entInvest.length}</div><div class="kpi-sub">${c.entAtras.length} com previsão vencida · ${c.entInvest.length} sem previsão (investigar)</div></a>` +
       `</section>` +
       `<section class="hm-two"><div class="card"><div class="card-head"><h2>Média de embarque por mês</h2><span class="hint">dias, ${m.ano}</span></div>` +
       `<div class="hm-bars">${m.embarquePorMes.map((x, i) => `<div class="${i === c.mes && m.ano === c.ano ? 'cur' : ''}"><small>${x.media == null ? '' : Math.round(x.media)}</small><b style="height:${x.media ? ((x.media / mx) * 80).toFixed(0) : 0}%"></b><span>${U.MES_CURTO[i]}</span></div>`).join('')}</div></div>` +
@@ -286,12 +290,116 @@
     ligarEdicao(root.querySelector('#tbl-atraso'), c.atras, c.dias);
   }
 
+  /* ---------- Entregas atrasadas: informar a data de entrega (coluna O) ---------- */
+  async function salvarEntrega(nf, data) {
+    if (!API) return { ok: false, error: 'Endereço do Apps Script não configurado.' };
+    try {
+      const resp = await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ acao: 'entrega_set', nf: nf, data_entrega: data }),
+      });
+      const j = await resp.json();
+      if (j && j.ok) return j;
+      const msg = (j && (j.error || j.erro)) || 'Não foi possível salvar.';
+      if (/a[cç][aã]o desconhecida/i.test(msg)) return { ok: false, error: 'O Apps Script ainda não tem a gravação de entrega. Cole a função gravarEntrega, acrescente a rota entrega_set e publique uma nova versão.' };
+      return { ok: false, error: msg };
+    } catch (e) {
+      return { ok: false, error: 'Sem conexão com o Apps Script. Confira se a nova versão foi implantada.' };
+    }
+  }
+
+  function abrirEntrega(n, hoje) {
+    const emb = n.dataEmbarque ? U.fmtDate(n.dataEmbarque) : '—';
+    const prev = n.previsao ? U.fmtDate(n.previsao) : 'sem previsão';
+    const atraso = n.entregaTipo === 'atrasada' && n.diasAtraso ? ` · ${U.fmtDias(n.diasAtraso)} de atraso` : '';
+    const ov = document.createElement('div');
+    ov.className = 'ed-ov';
+    ov.innerHTML =
+      `<div class="ed-box" role="dialog" aria-modal="true" aria-label="Entrega da nota ${esc(n.nf)}">` +
+      `<h2>Nota ${esc(n.nf)}</h2><div class="ed-sub">${esc(n.cliente || '')}${n.transportadora ? ' · ' + esc(n.transportadora) : ''}</div>` +
+      `<div class="ed-sub" style="margin-top:-8px">Embarque ${esc(emb)} · Previsão ${esc(prev)}${esc(atraso)}</div>` +
+      `<label for="ed-ent">Data de entrega</label><input type="date" id="ed-ent" max="${U.iso(hoje)}"${n.dataEmbarque ? ` min="${U.iso(n.dataEmbarque)}"` : ''}>` +
+      `<div class="ed-hint">Grava na coluna "Data de entrega" de todas as parcelas desta nota. Ela sai da lista de entregas atrasadas.</div>` +
+      `<div class="ed-err" id="ed-err" role="alert"></div>` +
+      `<div class="ed-act"><a href="#/nf/${esc(n.nf)}">Abrir a nota completa</a><button type="button" id="ed-cancel">Cancelar</button><button type="button" class="pri" id="ed-save">Salvar</button></div>` +
+      `</div>`;
+    document.body.appendChild(ov);
+    const $ = (s) => ov.querySelector(s);
+    const fechar = () => { document.removeEventListener('keydown', onKey); ov.remove(); };
+    const onKey = (e) => { if (e.key === 'Escape') fechar(); };
+    document.addEventListener('keydown', onKey);
+    ov.addEventListener('mousedown', (e) => { if (e.target === ov) fechar(); });
+    $('#ed-cancel').addEventListener('click', fechar);
+    ov.querySelector('.ed-act a').addEventListener('click', fechar);
+    $('#ed-save').addEventListener('click', async () => {
+      const btn = $('#ed-save'), err = $('#ed-err'), valor = $('#ed-ent').value;
+      err.textContent = '';
+      const d = U.parseDate(valor);
+      if (!d) { err.textContent = 'Informe a data de entrega.'; return; }
+      if (d > hoje) { err.textContent = 'A data de entrega não pode ser futura.'; return; }
+      if (n.dataEmbarque && d < n.dataEmbarque) { err.textContent = `A entrega não pode ser antes do embarque (${U.fmtDate(n.dataEmbarque)}).`; return; }
+      btn.disabled = true; btn.textContent = 'Salvando…';
+      const r = await salvarEntrega(n.nf, U.iso(d));
+      if (!r.ok) { err.textContent = r.error; btn.disabled = false; btn.textContent = 'Salvar'; return; }
+      fechar();
+      if (PV.toast) PV.toast('Entrega salva na planilha. Atualizando o painel…');
+      document.dispatchEvent(new CustomEvent('pv:saved', { detail: { nf: n.nf } }));
+    });
+    setTimeout(() => $('#ed-ent').focus(), 30);
+  }
+
+  /* clique (ou Enter) numa linha da lista abre a janela da entrega; a linha traz o número da nota em data-nf */
+  function ligarEntrega(box, m) {
+    box.addEventListener('click', (e) => {
+      if (e.target.closest('thead, input, select, textarea, .toolbar')) return;
+      const tr = e.target.closest('tbody tr');
+      if (!tr || !tr.dataset.nf) return;
+      const n = m.byNF.get(tr.dataset.nf);
+      if (!n) return;
+      e.preventDefault();
+      e.stopPropagation();
+      abrirEntrega(n, m.hoje);
+    }, true);
+  }
+
+  const entregaChip = (n) => (n.entregaTipo === 'atrasada' ? { c: 'late', t: 'Atrasada' } : { c: 'warn', t: 'Sem previsão' });
+
+  function atrasoEntrega(root, m) {
+    const rows = m.listas.entregaAtraso;
+    const atr = rows.filter((n) => n.entregaTipo === 'atrasada');
+    const inv = rows.filter((n) => n.entregaTipo === 'investigar');
+    const d = atr.map((n) => n.diasAtraso);
+    const lim = PV.config && PV.config.DIAS_SEM_PREVISAO != null ? PV.config.DIAS_SEM_PREVISAO : 3;
+    const T = K.T;
+    root.innerHTML =
+      K.head('Entregas atrasadas', `Notas embarcadas, sem data de entrega, com a previsão anterior a hoje (${U.fmtDate(m.hoje)}), e notas sem previsão há mais de ${lim} dias do embarque, para investigar. Clique numa linha para informar a data de entrega. Para ver só um grupo, digite “atrasada” ou “sem previsão” no filtro.`) +
+      K.stats([
+        ['Atrasadas (previsão vencida)', atr.length],
+        ['Sem previsão (investigar)', inv.length],
+        ['Maior atraso', U.fmtDias(d.length ? Math.max(...d) : null)],
+        ['Valor das notas', U.fmtBRL(U.sum(rows.map((n) => n.valorTotal)))],
+      ]) + '<div id="tbl-entrega"><div id="tbl"></div></div>';
+    K.mountTable(root.querySelector('#tbl'), {
+      file: 'entregas-atrasadas', rows: rows, sort: 'atraso', dir: -1,
+      columns: [
+        T.nf(), T.txt('cliente', 'Cliente', (n) => n.cliente), T.txt('transp', 'Transportadora', (n) => n.transportadora),
+        T.date('emb', 'Embarque', (n) => n.dataEmbarque), T.date('prev', 'Previsão', (n) => n.previsao),
+        T.dias('atraso', 'Dias de atraso', (n) => (n.entregaTipo === 'atrasada' && n.previsao ? n.diasAtraso : null)),
+        T.dias('desde', 'Dias desde o embarque', (n) => n.diasDesdeEmbarque),
+        T.chip('tipo', 'Situação', entregaChip), T.brl('valor', 'Valor', (n) => n.valorTotal, true),
+      ],
+    });
+    ligarEntrega(root.querySelector('#tbl-entrega'), m);
+  }
+
   /* ---------- Rotas ---------- */
   V.render = function (root, model, route) {
     const nome = route[0] || 'home';
-    if (nome === 'home' || nome === 'embarqueatraso') {
+    const TELAS = { home: home, embarqueatraso: atrasoEmbarque, entregaatraso: atrasoEntrega };
+    if (TELAS[nome]) {
       try {
-        (nome === 'home' ? home : atrasoEmbarque)(root, model);
+        TELAS[nome](root, model);
         try { window.scrollTo(0, 0); root.focus({ preventScroll: true }); } catch (e) { /* ignorado */ }
         return;
       } catch (e) { console.error(e); }
