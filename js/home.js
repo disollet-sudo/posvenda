@@ -62,12 +62,33 @@
     const COD_EXPORTACAO = '600048';
     const ehExport = (n) => n.exportacao || n.rows.some((r) => r.raw && Object.keys(r.raw).some((k) => k !== '_row' && String(r.raw[k]).trim() === COD_EXPORTACAO));
     const entraNoMes = (n) => !n.refaturada && !ehExport(n);
-    const doMes = m.nfs.filter((n) => n.dataPedido && n.dataPedido.getFullYear() === ano && n.dataPedido.getMonth() === mes && entraNoMes(n));
+    /* Duplicados: mesmo cliente + mesmo vendedor + mesmo valor de pedido, com datas de pedido a até 15 dias. */
+    const JANELA_DUP = 15;
+    const chave = (n) => [U.norm(n.cliente), U.norm(n.vendedor), Math.round((n.valorPedido || 0) * 100)].join('|');
+    const dupDe = (a, b) => a !== b && a.valorPedido > 0 && chave(a) === chave(b) && a.dataPedido && b.dataPedido && Math.abs(U.diffDays(a.dataPedido, b.dataPedido)) <= JANELA_DUP;
+    /* fica uma nota por grupo de duplicadas, dando preferência à que já embarcou */
+    const unicas = (lista) => {
+      const manter = [];
+      lista.slice().sort((a, b) => (b.embarcou ? 1 : 0) - (a.embarcou ? 1 : 0)).forEach((n) => { if (!manter.some((k) => dupDe(k, n))) manter.push(n); });
+      const set = new Set(manter);
+      return lista.filter((n) => set.has(n));
+    };
+    const embarcadas = m.nfs.filter((n) => (n.embarcou || n.entregue) && !n.refaturada);
+    const doMes = unicas(m.nfs.filter((n) => n.dataPedido && n.dataPedido.getFullYear() === ano && n.dataPedido.getMonth() === mes && entraNoMes(n)));
     /* um valor por nota (a planilha tem uma linha por parcela) */
     const vendMes = U.sum(doMes.map((n) => { const r = n.rows.find((x) => x.valor) || n.rows[0]; return r ? r.valor : 0; }));
     const lim = m.mediaEmbarque;
     const dias = (n) => (n.dataPedido ? U.diffDays(n.dataPedido, h) : null);
-    const fila = m.listas.naoEmbarcou.slice().sort((a, b) => (dias(b) || 0) - (dias(a) || 0));
+    const filaBruta = m.listas.naoEmbarcou.filter(entraNoMes);
+    /* diagnóstico (F12 > Console): notas na fila que têm algum valor numa coluna de embarque da planilha */
+    try {
+      const sus = filaBruta.filter((n) => n.rows.some((r) => r.raw && Object.keys(r.raw).some((k) => /embarq/i.test(k) && String(r.raw[k] == null ? '' : r.raw[k]).trim() !== '')));
+      if (sus.length) {
+        console.warn('[home.js] ' + sus.length + ' notas na fila de embarque têm valor numa coluna de embarque (data não lida?)');
+        console.table(sus.slice(0, 15).map((n) => { const r = n.rows.find((x) => x.raw) || {}; const o = { nf: n.nf, cliente: n.cliente }; Object.keys(r.raw || {}).filter((k) => /embarq/i.test(k)).forEach((k) => { o[k] = r.raw[k]; }); return o; }));
+      }
+    } catch (e) { /* ignorado */ }
+    const fila = unicas(filaBruta.filter((n) => !embarcadas.some((e) => dupDe(e, n)))).sort((a, b) => (dias(b) || 0) - (dias(a) || 0));
     /* atrasado para embarque: dias desde a data do PEDIDO passou da média de embarque */
     const atras = lim == null ? [] : fila.filter((n) => dias(n) != null && dias(n) > lim);
     /* entregas: previsão vencida x sem previsão (investigar); ver data.js */
