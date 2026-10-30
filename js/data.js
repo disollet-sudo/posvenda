@@ -22,6 +22,8 @@
     dataEmbarque: ['dataembarque', 'dtembarque', 'datadoembarque', 'embarque'],
     previsao: ['previsaoentrega', 'previsaodeentrega', 'dataprevista', 'previsao'],
     dataEntrega: ['dataentrega', 'dtentrega', 'datadaentrega', 'dataentregue', 'entrega'],
+    /* coluna V da planilha (Status Entrega): mapeada ANTES de "situacao" para não ser confundida com ela */
+    statusEntrega: ['statusentrega'],
     situacao: ['situacao', 'status', 'statusentrega', 'situacaoentrega'],
     parcela: ['parcela', 'nparcela', 'numparcela'],
     vencimento: ['vencimento', 'datavencimento', 'dtvencimento', 'vcto'],
@@ -37,6 +39,8 @@
     operacao: ['tipodeoperacao', 'tipooperacao', 'operacao'],
     /* coluna Y da planilha: "SIM" quando a observação do pedido no CIGAM tem "TRIANGULAR" */
     triangular: ['triangular', 'operacaotriangular'],
+    /* calculado pelo Apps Script: "SIM" quando não há Data embarque, mas já há previsão ou data de entrega */
+    embInferido: ['embarqueinferido'],
   };
 
   /* operações de expositor: não entram nas listas de embarque */
@@ -112,6 +116,7 @@
       vendedor: txt('vendedor'),
       transportadora: txt('transportadora'),
       situacao: txt('situacao'),
+      statusEntrega: txt('statusEntrega'),
       dataPedido: U.parseDate(g('dataPedido')),
       dataEmbarque: U.parseDate(g('dataEmbarque')),
       previsao: U.parseDate(g('previsao')),
@@ -126,12 +131,13 @@
       refat: txt('refat'),
       operacao: txt('operacao'),
       triangular: txt('triangular'),
+      embInferido: txt('embInferido'),
       uf: txt('uf'),
       raw,
     };
   }
 
-  const NF_FIELDS = ['cliente', 'vendedor', 'transportadora', 'situacao', 'dataPedido', 'dataEmbarque', 'previsao', 'dataEntrega', 'diasEmbarqueP', 'diasEntregaP', 'refat', 'operacao', 'uf', 'triangular'];
+  const NF_FIELDS = ['cliente', 'vendedor', 'transportadora', 'situacao', 'statusEntrega', 'dataPedido', 'dataEmbarque', 'previsao', 'dataEntrega', 'diasEmbarqueP', 'diasEntregaP', 'refat', 'operacao', 'uf', 'triangular', 'embInferido'];
   const empty = (v) => v == null || v === '';
 
   function groupByNF(records) {
@@ -156,6 +162,10 @@
   function enrich(n, hoje) {
     n.entregue = !!n.dataEntrega;
     n.embarcou = !!n.dataEmbarque;
+    /* embarque inferido: sem Data embarque, mas já tem previsão ou data de entrega, então a nota certamente saiu.
+     * "saiu" = embarcou de fato OU foi inferido; é isso que tira a nota da fila de embarque. */
+    n.embInferido = !n.embarcou && (/^(sim|s|1|x|true)$/i.test(String(n.embInferido || '').trim()) || !!n.previsao || n.entregue);
+    n.saiu = n.embarcou || n.embInferido;
     /* texto "Refaturada pela NF 139066" vindo da coluna Refaturamento; vazio = nota normal */
     n.refaturada = !empty(n.refat);
     /* expositor (6949I / 5949L): não entra nas listas de embarque */
@@ -170,10 +180,10 @@
     n.valorZero = n.valorPedido <= 0;
     n.diasEmbarque = n.diasEmbarqueP != null ? n.diasEmbarqueP : n.dataPedido && n.dataEmbarque ? U.diffDays(n.dataPedido, n.dataEmbarque) : null;
     n.diasEntrega = n.diasEntregaP != null ? n.diasEntregaP : n.dataEmbarque && n.dataEntrega ? U.diffDays(n.dataEmbarque, n.dataEntrega) : null;
-    n.atrasado = !n.entregue && n.embarcou && ((!!n.previsao && n.previsao < hoje) || /atras/.test(U.norm(n.situacao)));
+    n.atrasado = !n.entregue && n.saiu && ((!!n.previsao && n.previsao < hoje) || /atras/.test(U.norm(n.situacao)));
     n.diasAtraso = n.atrasado && n.previsao ? Math.max(0, U.diffDays(n.previsao, hoje)) : 0;
 
-    /* acompanhamento de entrega: nota embarcada, ainda sem data de entrega (coluna O).
+    /* acompanhamento de entrega: nota que saiu, ainda sem data de entrega (coluna O).
      *  - 'atrasada': previsão de entrega anterior a hoje (previsão igual a hoje ainda não conta);
      *  - 'investigar': sem previsão e sem entrega, embarcada há mais de DIAS_SEM_PREVISAO dias
      *    (a SSW pode não ter achado a nota, a chave da NF-e pode estar errada etc.).
@@ -181,7 +191,7 @@
     const limiteSemPrev = PV.config && PV.config.DIAS_SEM_PREVISAO != null ? PV.config.DIAS_SEM_PREVISAO : 3;
     n.diasDesdeEmbarque = n.embarcou ? Math.max(0, U.diffDays(n.dataEmbarque, hoje)) : null;
     n.entregaTipo = null;
-    if (n.embarcou && !n.entregue && !n.refaturada && !n.expositor && !n.exportacao && !n.triangular) {
+    if (n.saiu && !n.entregue && !n.refaturada && !n.expositor && !n.exportacao && !n.triangular) {
       if (n.atrasado) n.entregaTipo = 'atrasada';
       else if (!n.previsao && n.diasDesdeEmbarque > limiteSemPrev) n.entregaTipo = 'investigar';
     }
@@ -246,17 +256,19 @@
         entregaAtraso: nfs.filter((n) => n.entregaTipo).sort((a, b) =>
           (a.entregaTipo === b.entregaTipo ? 0 : a.entregaTipo === 'atrasada' ? -1 : 1) ||
           ((a.previsao || a.dataEmbarque) - (b.previsao || b.dataEmbarque))),
-        /* saem da fila de embarque: notas refaturadas (devolvidas e emitidas de novo), expositores (6949I / 5949L), pedidos com valor 0, exportações (UF = EX) e vendas triangulares */
-        naoEmbarcou: nfs.filter((n) => !n.embarcou && !n.entregue && !n.refaturada && !n.expositor && !n.valorZero && !n.exportacao && !n.triangular).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
+        /* saem da fila de embarque: notas que já saíram (embarque informado OU inferido por previsão/entrega), refaturadas (devolvidas e emitidas de novo), expositores (6949I / 5949L), pedidos com valor 0, exportações (UF = EX) e vendas triangulares */
+        naoEmbarcou: nfs.filter((n) => !n.saiu && !n.entregue && !n.refaturada && !n.expositor && !n.valorZero && !n.exportacao && !n.triangular).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
         /* só para consulta: notas de venda de operação triangular escondidas da fila de embarque */
-        triangulares: nfs.filter((n) => n.triangular && !n.embarcou && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
+        triangulares: nfs.filter((n) => n.triangular && !n.saiu && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
         /* só para consulta: exportações (UF = EX) escondidas da fila de embarque */
-        exportacoes: nfs.filter((n) => n.exportacao && !n.embarcou && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
+        exportacoes: nfs.filter((n) => n.exportacao && !n.saiu && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
         /* só para consulta: pedidos com Valor Pedido 0 escondidos da fila de embarque */
-        valorZero: nfs.filter((n) => n.valorZero && !n.embarcou && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
+        valorZero: nfs.filter((n) => n.valorZero && !n.saiu && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
         /* só para consulta: as que foram escondidas da fila acima */
-        refaturadas: nfs.filter((n) => n.refaturada && !n.embarcou && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
-        expositores: nfs.filter((n) => n.expositor && !n.embarcou && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
+        refaturadas: nfs.filter((n) => n.refaturada && !n.saiu && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
+        expositores: nfs.filter((n) => n.expositor && !n.saiu && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
+        /* só para consulta: notas sem Data embarque, mas com previsão/entrega (embarque inferido). Vale preencher a Data embarque na planilha. */
+        embarqueInferido: nfs.filter((n) => n.embInferido && !n.entregue).sort((a, b) => (a.dataPedido || 0) - (b.dataPedido || 0)),
       },
     };
   };
