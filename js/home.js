@@ -22,7 +22,7 @@
 .hm-hero input:focus{outline:none;border-bottom-style:solid}
 .hm-bar{height:12px;background:rgba(255,255,255,.18);border-radius:99px;overflow:hidden;margin:14px 0 6px}
 .hm-bar i{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .6s}
-.hm-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.hm-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 .hm-act{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 .hm-act a{display:block;padding:20px 22px;background:var(--surface);border:1px solid var(--line);border-left:6px solid var(--info);border-radius:10px;color:inherit;text-decoration:none}
 .hm-act a.late{border-left-color:var(--late)}
@@ -199,7 +199,6 @@
       m.nfs.forEach((n) => { [n.dataPedido, n.dataEmbarque, n.dataEntrega].forEach((d) => d && s.add(d.getFullYear())); });
       return Array.from(s).sort((a, b) => b - a);
     })();
-    const clientesVenc = U.uniq(m.vencidos.map((p) => p.cliente)).length;
     const mx = Math.max(1, ...m.embarquePorMes.map((x) => x.media || 0));
     const velho = c.fila[0];
 
@@ -212,7 +211,6 @@
       `<div class="hm-bar"><i id="hm-fill" style="width:0"></i></div><div class="l" id="hm-pct"></div></div>` +
       `<div><div class="l">Falta para a meta</div><div class="big" id="hm-falta">—</div><div class="l" style="margin-top:6px">Pedidos de ${esc(nomeMes)}: ${esc(U.fmtBRL(c.vendMes))} em ${c.doMes.length} notas</div></div></section>` +
       `<section class="hm-kpis">` +
-      `<a class="kpi-mini" href="#/vencidos"><span class="label">A receber (vencido)</span><span class="value late">${esc(U.fmtBRL(m.totalVencido))}</span><span class="kpi-sub">${m.vencidos.length} parcelas · ${clientesVenc} clientes</span></a>` +
       `<a class="kpi-mini" href="#/entrega"><span class="label">Média de entrega</span><span class="value info">${esc(U.fmtDias(m.mediaEntrega))}</span><span class="kpi-sub">${m.entreguesAno.length} entregas no ano</span></a>` +
       `<a class="kpi-mini" href="#/embarque"><span class="label">Média de embarque</span><span class="value warn">${esc(U.fmtDias(m.mediaEmbarque))}</span><span class="kpi-sub">do pedido ao embarque</span></a>` +
       `<div class="kpi-mini"><span class="label">Pedidos de ${esc(nomeMes)}</span><span class="value">${esc(U.fmtBRL(c.vendMes))}</span><span class="kpi-sub">${c.doMes.length} notas no mês</span></div>` +
