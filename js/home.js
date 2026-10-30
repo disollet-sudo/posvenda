@@ -57,7 +57,12 @@
   /* ---------- Cálculos ---------- */
   function calc(m) {
     const h = m.hoje, mes = h.getMonth(), ano = h.getFullYear();
-    const doMes = m.nfs.filter((n) => n.dataPedido && n.dataPedido.getFullYear() === ano && n.dataPedido.getMonth() === mes);
+    /* Pedidos do mês: fora exportação (UF = EX ou código 600048 em qualquer coluna) e fora a nota
+     * refaturada (a original, devolvida); fica só a nota nova, então o valor não duplica. */
+    const COD_EXPORTACAO = '600048';
+    const ehExport = (n) => n.exportacao || n.rows.some((r) => r.raw && Object.keys(r.raw).some((k) => k !== '_row' && String(r.raw[k]).trim() === COD_EXPORTACAO));
+    const entraNoMes = (n) => !n.refaturada && !ehExport(n);
+    const doMes = m.nfs.filter((n) => n.dataPedido && n.dataPedido.getFullYear() === ano && n.dataPedido.getMonth() === mes && entraNoMes(n));
     /* um valor por nota (a planilha tem uma linha por parcela) */
     const vendMes = U.sum(doMes.map((n) => { const r = n.rows.find((x) => x.valor) || n.rows[0]; return r ? r.valor : 0; }));
     const lim = m.mediaEmbarque;
